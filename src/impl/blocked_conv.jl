@@ -71,17 +71,13 @@ function blocked_conv_inner_loop!(Out::Array{T,6},
         dᵢ = 1 + s[3] * (dₒ - 1) + d[3] * (dₖ - 1) - p[5]
         hᵢ = 1 + s[2] * (hₒ - 1) + d[2] * (hₖ - 1) - p[3]
         wᵢ = 1 + s[1] * (wₒ - 1) + d[1] * (wₖ - 1) - p[1]
-
-        F_w = Wₖ - (wₖ - 1)
-        F_h = Hₖ - (hₖ - 1)
-        F_d = Dₖ - (dₖ - 1)
+        tmpO = vload(Vec{B, T}, view(Out, :, wₒ, hₒ, dₒ, j, n), 1)
         @inbounds for ii = 1:B
             tmpI = Vec{8, T}(X[ii, wᵢ, hᵢ, dᵢ, i, n])
-            tmpO = vload(Vec{B, T}, view(Out, :, wₒ, hₒ, dₒ, j, n), 1)
-            tmpW = vload(Vec{B, T}, view(W, :, ii, F_w, F_h, F_d, i, j), 1)
-            tmpOut = fma(tmpI, tmpW, tmpO)
-            vstore(tmpOut, view(Out, :, wₒ, hₒ, dₒ, j, n), 1)
+            tmpW = vload(Vec{B, T}, view(W, :, ii, wₖ, hₖ, dₖ, i, j), 1)
+            tmpO = fma(tmpI, tmpW, tmpO)
         end
+        vstore(tmpO, view(Out, :, wₒ, hₒ, dₒ, j, n), 1)
     end
 
     #calculate the regions with conditionals
@@ -95,16 +91,13 @@ function blocked_conv_inner_loop!(Out::Array{T,6},
             if (hᵢ < 1 || wᵢ < 1 || dᵢ < 1 || hᵢ > Hᵢ || wᵢ > Wᵢ || dᵢ > Dᵢ)
                 continue
             end
-            F_w = Wₖ - (wₖ - 1)
-            F_h = Hₖ - (hₖ - 1)
-            F_d = Dₖ - (dₖ - 1)
+            tmpO = vload(Vec{B, T}, view(Out, :, wₒ, hₒ, dₒ, j, n), 1)
             @inbounds for ii = 1:B
                 tmpI = Vec{8, T}(X[ii, wᵢ, hᵢ, dᵢ, i, n])
-                tmpO = vload(Vec{B, T}, view(Out, :, wₒ, hₒ, dₒ, j, n), 1)
-                tmpW = vload(Vec{B, T}, view(W, :, ii, F_w, F_h, F_d, i, j), 1)
-                tmpOut = fma(tmpI, tmpW, tmpO)
-                vstore(tmpOut, view(Out, :, wₒ, hₒ, dₒ, j, n), 1)
+                tmpW = vload(Vec{B, T}, view(W, :, ii, wₖ, hₖ, dₖ, i, j), 1)
+                tmpO = fma(tmpI, tmpW, tmpO)
             end
+            vstore(tmpO, view(Out, :, wₒ, hₒ, dₒ, j, n), 1)
         end
     end
 end
@@ -127,6 +120,9 @@ end
 function blocked_conv(X::Array{T,6}, W::Array{T,7}, cdims::DenseConvDims) where T<:Number
     Out = zeros(T, size(W,1), output_size(cdims)...,
                    div(channels_out(cdims),size(W, 1)), size(X, 6))
+    if !flipkernel(cdims)
+       W = W[:, :, end:-1:1, end:-1:1, end:-1:1, :, :]
+    end
     blocked_conv!(Out, X, W, cdims)
     Out
 end
